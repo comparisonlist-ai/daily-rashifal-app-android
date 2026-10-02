@@ -11,9 +11,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check project ZIP
+        run: |
+          echo "=== Repository files ==="
+          ls -la
+          echo "=== ZIP contents ==="
+          unzip -l DailyRashifalApp-Android-Project.zip | head -100
+
       - name: Extract Android project
         run: |
+          rm -rf android-project
+          mkdir -p android-project
           unzip -o DailyRashifalApp-Android-Project.zip -d android-project
+
+          echo "=== Extracted project ==="
+          find android-project -maxdepth 3 -type f | sort | head -200
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -31,12 +43,75 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Diagnose Android project
+        run: |
+          echo "=== Android project directory ==="
+          find android-project -maxdepth 2 -type f | sort
+
+          echo ""
+          echo "=== settings.gradle files ==="
+          find android-project -name "settings.gradle" -o -name "settings.gradle.kts"
+
+          echo ""
+          echo "=== build.gradle files ==="
+          find android-project -name "build.gradle" -o -name "build.gradle.kts"
+
+          echo ""
+          echo "=== app directory ==="
+          find android-project -maxdepth 3 -type d -name "app"
+
       - name: Build APK
         working-directory: android-project
-        run: gradle assembleDebug --stacktrace
+        run: |
+          set +e
+
+          echo "=== Current directory ==="
+          pwd
+
+          echo ""
+          echo "=== Directory contents ==="
+          ls -la
+
+          echo ""
+          echo "=== Gradle build starting ==="
+
+          gradle assembleDebug --stacktrace 2>&1 | tee gradle-build.log
+
+          BUILD_EXIT=${PIPESTATUS[0]}
+
+          echo ""
+          echo "=== Gradle exit code: ${BUILD_EXIT} ==="
+
+          echo ""
+          echo "=== LAST 120 LINES OF GRADLE OUTPUT ==="
+          tail -120 gradle-build.log
+
+          echo ""
+          echo "=== GRADLE OUTPUT SAVED TO GITHUB SUMMARY ==="
+
+          {
+            echo "## Daily Rashifal App — Gradle Build Diagnostic"
+            echo ""
+            echo "**Gradle exit code:** \`${BUILD_EXIT}\`"
+            echo ""
+            echo "### Last 120 lines of Gradle output"
+            echo '```text'
+            tail -120 gradle-build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit ${BUILD_EXIT}
+
+      - name: Check APK
+        if: success()
+        run: |
+          echo "=== APK files ==="
+          find android-project -type f -name "*.apk" -print
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Daily-Rashifal-App
-          path: android-project/app/build/outputs/apk/debug/app-debug.apk
+          path: android-project/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
