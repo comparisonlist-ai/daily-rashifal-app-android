@@ -1,1 +1,206 @@
+name: Build Daily Rashifal App APK
 
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check project ZIP
+        run: |
+          echo "=== Repository files ==="
+          ls -la
+
+          echo ""
+          echo "=== ZIP contents ==="
+          unzip -l DailyRashifalApp-Android-Project.zip | head -150
+
+      - name: Extract Android project
+        run: |
+          rm -rf android-project
+          mkdir -p android-project
+
+          unzip -o DailyRashifalApp-Android-Project.zip -d android-project
+
+          echo ""
+          echo "=== Extracted project ==="
+          find android-project -maxdepth 4 -type f | sort | head -300
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0'
+
+      - name: Install Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Diagnose Android project
+        run: |
+          echo "======================================"
+          echo "ANDROID PROJECT DIAGNOSTIC"
+          echo "======================================"
+
+          echo ""
+          echo "=== settings.gradle files ==="
+          find android-project \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+            -print
+
+          echo ""
+          echo "=== build.gradle files ==="
+          find android-project \
+            \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+            -print
+
+          echo ""
+          echo "=== gradlew files ==="
+          find android-project \
+            -name "gradlew" \
+            -print
+
+          echo ""
+          echo "=== app directories ==="
+          find android-project \
+            -type d \
+            -name "app" \
+            -print
+
+      - name: Locate Android project
+        id: locate
+        shell: bash
+        run: |
+          set -e
+
+          PROJECT_DIR=""
+
+          while IFS= read -r file; do
+            DIR=$(dirname "$file")
+
+            if [ -f "$DIR/settings.gradle" ] || [ -f "$DIR/settings.gradle.kts" ]; then
+              PROJECT_DIR="$DIR"
+              break
+            fi
+          done < <(
+            find android-project \
+              \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+              -print
+          )
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android Gradle project was not found."
+            echo ""
+            echo "Directories containing Gradle files:"
+            find android-project \
+              \( -name "build.gradle" -o -name "build.gradle.kts" \) \
+              -print
+            exit 1
+          fi
+
+          echo "Android project found at:"
+          echo "$PROJECT_DIR"
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Build APK
+        id: build
+        shell: bash
+        run: |
+          set +e
+
+          PROJECT_DIR="${{ steps.locate.outputs.project_dir }}"
+
+          echo "======================================"
+          echo "BUILDING DAILY RASHIFAL APP"
+          echo "======================================"
+
+          echo ""
+          echo "Project directory:"
+          echo "$PROJECT_DIR"
+
+          cd "$PROJECT_DIR"
+
+          echo ""
+          echo "=== Project contents ==="
+          ls -la
+
+          echo ""
+          echo "=== Gradle build starting ==="
+
+          gradle assembleDebug --stacktrace --warning-mode all 2>&1 | tee "$GITHUB_WORKSPACE/gradle-build.log"
+
+          BUILD_EXIT=${PIPESTATUS[0]}
+
+          echo ""
+          echo "======================================"
+          echo "GRADLE EXIT CODE: $BUILD_EXIT"
+          echo "======================================"
+
+          echo ""
+          echo "=== IMPORTANT ERROR INFORMATION ==="
+
+          grep -n -E \
+            "FAILURE:|What went wrong:|Execution failed|Could not resolve|Could not find|error:|ERROR|Caused by:" \
+            "$GITHUB_WORKSPACE/gradle-build.log" \
+            | tail -80 || true
+
+          echo ""
+          echo "=== LAST 200 LINES ==="
+          tail -200 "$GITHUB_WORKSPACE/gradle-build.log"
+
+          echo ""
+          echo "=== GRADLE DIAGNOSTIC SAVED TO GITHUB SUMMARY ==="
+
+          {
+            echo "## Daily Rashifal App — Gradle Diagnostic"
+            echo ""
+            echo "**Gradle exit code:** \`$BUILD_EXIT\`"
+            echo ""
+            echo "### Important error lines"
+            echo '```text'
+            grep -n -E \
+              "FAILURE:|What went wrong:|Execution failed|Could not resolve|Could not find|error:|ERROR|Caused by:" \
+              "$GITHUB_WORKSPACE/gradle-build.log" \
+              | tail -80 || true
+            echo '```'
+            echo ""
+            echo "### Last 200 lines"
+            echo '```text'
+            tail -200 "$GITHUB_WORKSPACE/gradle-build.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          exit $BUILD_EXIT
+
+      - name: Check APK
+        if: success()
+        run: |
+          echo "======================================"
+          echo "APK FILES FOUND"
+          echo "======================================"
+
+          find android-project \
+            -type f \
+            -name "*.apk" \
+            -print
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Daily-Rashifal-App
+          path: android-project/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
