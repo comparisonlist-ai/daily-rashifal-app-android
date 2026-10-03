@@ -19,14 +19,14 @@ jobs:
 
           echo ""
           echo "=== ZIP contents ==="
-          unzip -l DailyRashifalApp-Android-Project.zip | head -150
+          unzip -l DailyRashifalApp-Android-Project-FINAL.zip | head -150
 
       - name: Extract Android project
         run: |
           rm -rf android-project
           mkdir -p android-project
 
-          unzip -o DailyRashifalApp-Android-Project.zip -d android-project
+          unzip -o DailyRashifalApp-Android-Project-FINAL.zip -d android-project
 
           echo ""
           echo "=== Extracted project ==="
